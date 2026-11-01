@@ -1,0 +1,7 @@
+#!/bin/sh
+# Re-send the current charge limit to the firmware. The G14 EC can drop the
+# limit on AC plug/unplug while sysfs keeps showing the old value.
+sleep 3
+f=/sys/class/power_supply/BAT1/charge_control_end_threshold
+v=$(cat "$f") || exit 1
+echo "$v" > "$f" && logger -t asus-charge-limit "re-applied charge limit ${v}%"
