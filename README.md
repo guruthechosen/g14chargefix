@@ -1,52 +1,96 @@
 # g14chargefix
 
-Re-applies the battery charge limit on an ASUS ROG Zephyrus G14 whenever the charger is plugged in or unplugged.
+Makes an ASUS ROG Zephyrus G14 respect its battery charge limit on Linux, by re-sending the limit to the firmware every time the charger is plugged in or unplugged.
 
-Tested on a GA403WW (BIOS 310) with Arch-based Linux and asusctl 6.5.0.
+Tested on a GA403WW (BIOS 310) on Arch-based Linux with asusctl 6.5.0. It should be safe to try on other ASUS laptops that use `BAT1` and `ACAD`, but it hasn't been tested on them.
 
 ## The problem
 
-With a limit set through `rog-control-center` or `asusctl`, the battery still charged to 100%. `charge_control_end_threshold` kept reading the limit the whole time, because it only shows the last value the kernel sent, not what the firmware is enforcing.
+You set a limit such as 85% in ROG Control Center, but the battery still charges to 100%.
 
-A limit sent while on AC power takes effect within seconds. A limit set while unplugged did not hold after plugging in. asusd only sends the limit at boot and when the setting changes, so the suspected cause is the firmware dropping it on AC plug events. This has not been fully confirmed.
+Nothing looks wrong when you check. `asusctl battery info` and `charge_control_end_threshold` both report 85%, because they show the last value sent to the firmware, not the limit the firmware is actually enforcing.
 
-## The fix
+What testing showed:
 
-A udev rule runs on every AC state change, waits 3 seconds, then writes the current limit back to `charge_control_end_threshold`. It reads the value at that moment, so changing the limit in ROG Control Center or with `asusctl battery limit N` keeps working.
+- A limit sent while plugged in takes effect within seconds.
+- A limit set while unplugged didn't hold: the battery charged from 57% to 100% after the charger was connected.
+- asusd only sends the limit at boot and when the setting changes, not when the charger is connected.
+
+The suspected cause is the firmware dropping the limit when the charger is connected. This isn't fully confirmed.
+
+## How the fix works
+
+1. A udev rule runs whenever the charger state changes.
+2. The script waits 3 seconds, reads the current limit and writes the same value back, which sends it to the firmware again.
+3. It logs the result to the system journal.
+
+The script doesn't store a limit of its own. It re-sends whatever is currently set, so you can keep changing the limit the usual way.
+
+## Requirements
+
+- `asusctl` and its `asusd` service, which restores your limit at boot
+- A battery at `BAT1` and a charger at `ACAD`. Check with `ls /sys/class/power_supply/`. If your names differ, edit `asus-reapply-charge-limit` and `99-asus-charge-limit.rules`.
 
 ## Install
 
 ```
+git clone https://github.com/guruthechosen/g14chargefix.git
+cd g14chargefix
 ./install.sh
 ```
 
-This needs `sudo`. It installs:
+The installer needs `sudo`. It takes effect immediately, with no reboot, and adds these two files:
 
 - `/usr/local/bin/asus-reapply-charge-limit`
 - `/etc/udev/rules.d/99-asus-charge-limit.rules`
 
-## Check it works
+## Usage
 
-Unplug and replug the charger, then:
+There's nothing to run day to day. Set your limit in ROG Control Center, or with:
+
+```
+asusctl battery limit 85
+```
+
+The limit stops charging but doesn't drain the battery. If the battery is already above the limit, it stays there until you use it on battery and it drops below the limit.
+
+If you edit the script later, run `./install.sh` again to install the new copy.
+
+## Check that it works
+
+Unplug the charger, plug it back in, then run:
 
 ```
 journalctl -t asus-charge-limit -n 5
 ```
 
-You should see a `re-applied charge limit N%` line for each plug and unplug.
+You should see one line for each plug and unplug:
 
-To see whether the battery is charging, read `current_now`. `status` can say `Charging` while no current is flowing.
+```
+re-applied charge limit 85%
+```
+
+To test the limit itself, drain the battery well below your limit, plug in, and check again once it passes the limit:
 
 ```
 cat /sys/class/power_supply/BAT1/current_now
 ```
 
+`0` means no charging current is flowing. Use this instead of the `status` file, which can say `Charging` while no current is flowing.
+
+## Things to know
+
+- **It may stop a few percent above your limit.** The firmware may count percentage against the battery's original capacity, so a worn battery can stop higher on screen. With about 95% battery health, a limit of 85% may stop around 89–90%. To stop nearer 85%, try setting 80–81%.
+- **Battery percentage history** is available without root, through UPower:
+
+  ```
+  upower -i "$(upower -e | grep BAT)"
+  ```
+
 ## Status
 
-- Confirmed: the rule fires on plug and unplug, and the battery holds when plugged in above the limit.
-- Not yet confirmed: stopping at the limit when charging up from well below it.
-
-The firmware may count percentage against the battery's original capacity, so on a worn battery the charge can stop a few percent above the limit on screen.
+- **Confirmed:** the rule runs on plug and unplug, and the battery holds when plugged in above the limit.
+- **Not yet confirmed:** stopping at the limit when charging up from well below it.
 
 ## Uninstall
 
