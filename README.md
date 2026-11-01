@@ -81,10 +81,12 @@ cat /sys/class/power_supply/BAT1/current_now
 ## Things to know
 
 - **It may stop a few percent above your limit.** The firmware may count percentage against the battery's original capacity, so a worn battery can stop higher on screen. With about 95% battery health, a limit of 85% may stop around 89–90%. To stop nearer 85%, try setting 80–81%.
-- **Battery percentage history** is available without root, through UPower:
+- **You can see the last 24 hours of battery percentage** without root, to check whether it went past the limit. Each entry is a Unix timestamp, the percentage, and a state code (`1` charging, `2` discharging, `4` full):
 
   ```
-  upower -i "$(upower -e | grep BAT)"
+  gdbus call --system --dest org.freedesktop.UPower \
+    --object-path /org/freedesktop/UPower/devices/battery_BAT1 \
+    --method org.freedesktop.UPower.Device.GetHistory charge 86400 100
   ```
 
 ## Status
